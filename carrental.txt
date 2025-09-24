@@ -1,0 +1,399 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <iomanip>
+#include <limits>
+#include <map>
+
+struct Supplier {
+    int id;
+    std::string name;
+    std::string phone;
+    double revenue = 0.0;
+};
+
+struct Car {
+    int id;
+    int supplierId;
+    std::string brand;
+    std::string model;
+    std::string type;
+    double pricePerDay;
+    bool available = true;
+};
+
+struct Client {
+    int id;
+    std::string name;
+    int yearsDriving;
+    int accidents;
+    int yearsWithCompany;
+    bool isRegular;
+    double personalDiscount;
+};
+
+struct Rental {
+    int id;
+    int carId;
+    int clientId;
+    int days;
+    double finalCost;
+    double deposit;
+    bool active;
+};
+
+
+std::vector<Supplier> suppliers;
+std::vector<Car> cars;
+std::vector<Client> clients;
+std::vector<Rental> rentals;
+
+int nextRentalId = 1;
+
+
+std::map<std::string, double> typeDiscounts;
+
+
+std::string toLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+    return s;
+}
+
+Supplier* findSupplierById(int id) {
+    for (auto &s : suppliers) if (s.id == id) return &s;
+    return nullptr;
+}
+
+Car* findCarById(int id) {
+    for (auto &c : cars) if (c.id == id) return &c;
+    return nullptr;
+}
+
+Client* findClientById(int id) {
+    for (auto &c : clients) if (c.id == id) return &c;
+    return nullptr;
+}
+
+
+std::string riskCategory(const Client& cl) {
+    int score = 0;
+
+    if (cl.yearsDriving < 2) score += 2;
+    else if (cl.yearsDriving < 5) score += 1;
+
+
+    score += cl.accidents * 2;
+
+
+    if (cl.yearsWithCompany > 2) score -= 1;
+    if (cl.yearsWithCompany > 5) score -= 1;
+
+    if (score <= 0) return "Low";
+    if (score <= 3) return "Medium";
+    return "High";
+}
+
+
+double depositForRisk(const std::string& rc) {
+    if (rc == "Low") return 200.0;
+    if (rc == "Medium") return 400.0;
+    return 800.0;
+}
+
+
+double applyDiscounts(const Car& car, const Client& cl, int days) {
+    double base = car.pricePerDay * days;
+
+    double typeDisc = 0.0;
+    auto it = typeDiscounts.find(car.type);
+    if (it != typeDiscounts.end()) typeDisc = it->second;
+
+    double personal = (cl.isRegular ? cl.personalDiscount : 0.0);
+
+    double afterType = base * (1.0 - typeDisc);
+    double finalCost = afterType * (1.0 - personal);
+
+    return finalCost;
+}
+
+void pauseForEnter() {
+    std::cout << "\nPress ENTER to continue...";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+}
+
+
+void printCar(const Car& c) {
+    const Supplier* s = findSupplierById(c.supplierId);
+    std::cout << "#" << c.id
+              << " | " << c.brand << " " << c.model
+              << " | Type: " << c.type
+              << " | Price/day: " << std::fixed << std::setprecision(2) << c.pricePerDay
+              << " | Supplier: " << (s ? s->name : "?")
+              << " | " << (c.available ? "Available" : "Rented")
+              << "\n";
+}
+
+void listCars() {
+    std::cout << "\n=== All Cars ===\n";
+    for (const auto& c : cars) printCar(c);
+}
+
+void listAvailableCars() {
+    std::cout << "\n=== Available Cars ===\n";
+    for (const auto& c : cars) if (c.available) printCar(c);
+}
+
+void listSuppliers() {
+    std::cout << "\n=== Suppliers ===\n";
+    for (const auto& s : suppliers) {
+        std::cout << "#" << s.id << " | " << s.name
+                  << " | Phone: " << s.phone
+                  << " | Revenue: " << std::fixed << std::setprecision(2) << s.revenue
+                  << "\n";
+    }
+}
+
+void listClients() {
+    std::cout << "\n=== Clients ===\n";
+    for (const auto& c : clients) {
+        std::cout << "#" << c.id << " | " << c.name
+                  << " | Driving: " << c.yearsDriving << "y"
+                  << " | Accidents: " << c.accidents
+                  << " | WithCompany: " << c.yearsWithCompany << "y"
+                  << " | Regular: " << (c.isRegular ? "Yes" : "No")
+                  << " | PersonalDisc: " << (c.personalDiscount * 100) << "%"
+                  << " | Risk: " << riskCategory(c)
+                  << "\n";
+    }
+}
+
+void listRentals() {
+    std::cout << "\n=== Rentals ===\n";
+    for (const auto& r : rentals) {
+        const Car* car = findCarById(r.carId);
+        const Client* cl = findClientById(r.clientId);
+        std::cout << "#" << r.id
+                  << " | Car: " << (car ? (car->brand + " " + car->model) : "?")
+                  << " | Client: " << (cl ? cl->name : "?")
+                  << " | Days: " << r.days
+                  << " | Cost: " << std::fixed << std::setprecision(2) << r.finalCost
+                  << " | Deposit: " << r.deposit
+                  << " | " << (r.active ? "ACTIVE" : "Closed")
+                  << "\n";
+    }
+}
+
+void searchCars() {
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::string type, brand;
+    double maxPrice = 0.0;
+
+    std::cout << "Enter type to filter (or leave empty): ";
+    std::getline(std::cin, type);
+    std::cout << "Enter brand to filter (or leave empty): ";
+    std::getline(std::cin, brand);
+    std::cout << "Enter max price/day (0 for no limit): ";
+    std::cin >> maxPrice;
+
+    std::string typeL = toLower(type);
+    std::string brandL = toLower(brand);
+
+    std::vector<const Car*> matches;
+    for (const auto& c : cars) {
+        if (!c.available) continue;
+        bool ok = true;
+        if (!type.empty() && toLower(c.type).find(typeL) == std::string::npos) ok = false;
+        if (!brand.empty() && toLower(c.brand).find(brandL) == std::string::npos) ok = false;
+        if (maxPrice > 0.0 && c.pricePerDay > maxPrice) ok = false;
+        if (ok) matches.push_back(&c);
+    }
+
+    std::cout << "\nSuitable options (" << matches.size() << "):\n";
+    for (auto c : matches) printCar(*c);
+}
+
+void addClient() {
+    Client c{};
+    c.id = clients.empty() ? 1 : (clients.back().id + 1);
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::cout << "Name: "; std::getline(std::cin, c.name);
+    std::cout << "Years driving: "; std::cin >> c.yearsDriving;
+    std::cout << "Accidents (count): "; std::cin >> c.accidents;
+    std::cout << "Years with company: "; std::cin >> c.yearsWithCompany;
+    int reg; std::cout << "Regular customer? (1=yes, 0=no): "; std::cin >> reg; c.isRegular = (reg==1);
+    if (c.isRegular) {
+        std::cout << "Personal discount in % (e.g., 10): ";
+        double pct; std::cin >> pct; c.personalDiscount = pct / 100.0;
+    } else c.personalDiscount = 0.0;
+
+    clients.push_back(c);
+    std::cout << "Client added with id #" << c.id << "\n";
+}
+
+void createRental() {
+    listAvailableCars();
+    std::cout << "\nPick car id: ";
+    int carId; std::cin >> carId;
+    Car* car = findCarById(carId);
+    if (!car || !car->available) { std::cout << "Invalid car selection.\n"; return; }
+
+    listClients();
+    std::cout << "\nPick client id: ";
+    int clientId; std::cin >> clientId;
+    Client* cl = findClientById(clientId);
+    if (!cl) { std::cout << "Invalid client.\n"; return; }
+
+    std::cout << "Days to rent: ";
+    int days; std::cin >> days; if (days <= 0) { std::cout << "Days must be > 0.\n"; return; }
+
+    double cost = applyDiscounts(*car, *cl, days);
+
+    std::string rc = riskCategory(*cl);
+    double dep = depositForRisk(rc);
+
+    Rental r{};
+    r.id = nextRentalId++;
+    r.carId = car->id;
+    r.clientId = cl->id;
+    r.days = days;
+    r.finalCost = cost;
+    r.deposit = dep;
+    r.active = true;
+
+    rentals.push_back(r);
+
+    car->available = false;
+
+    Supplier* sup = findSupplierById(car->supplierId);
+    if (sup) sup->revenue += cost;
+
+    std::cout << "\n=== Rental Contract ===\n";
+    std::cout << "Rental #" << r.id << "\n";
+    std::cout << "Client: " << cl->name << " (Risk: " << rc << ")\n";
+    std::cout << "Car: " << car->brand << " " << car->model << " | Type: " << car->type << "\n";
+    std::cout << "Days: " << days << "\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Price/day: " << car->pricePerDay << "\n";
+    double typeDisc = typeDiscounts.count(car->type) ? typeDiscounts[car->type]*100 : 0.0;
+    std::cout << "Type discount: " << typeDisc << "%\n";
+    std::cout << "Personal discount: " << (cl->isRegular ? cl->personalDiscount*100 : 0.0) << "%\n";
+    std::cout << "Final cost: " << cost << "\n";
+    std::cout << "Security deposit: " << dep << "\n";
+    std::cout << "Status: ACTIVE\n";
+}
+
+void returnCar() {
+    listRentals();
+    std::cout << "\nEnter rental id to close: ";
+    int rid; std::cin >> rid;
+    for (auto &r : rentals) {
+        if (r.id == rid && r.active) {
+            r.active = false;
+            Car* car = findCarById(r.carId);
+            if (car) car->available = true;
+            std::cout << "Rental closed and car marked available.\n";
+            return;
+        }
+    }
+    std::cout << "Rental not found or already closed.\n";
+}
+
+void setTypeDiscount() {
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::string t; double pct;
+    std::cout << "Car TYPE to set discount for (exact, e.g., SUV): ";
+    std::getline(std::cin, t);
+    std::cout << "Discount % (e.g., 5 for 5%): "; std::cin >> pct;
+    typeDiscounts[t] = pct / 100.0;
+    std::cout << "Set discount for type '" << t << "' to " << pct << "%\n";
+}
+
+void reportIncome() {
+    std::cout << "\n=== Income Report ===\n";
+    double total = 0.0;
+    for (const auto &s : suppliers) {
+        std::cout << s.name << ": " << std::fixed << std::setprecision(2) << s.revenue << "\n";
+        total += s.revenue;
+    }
+    std::cout << "Total company income: " << total << "\n";
+}
+
+void seedData() {
+    suppliers = {
+        {1, "FastWheels Ltd", "+372 5555 1111", 0.0},
+        {2, "CityCars OÜ", "+372 5555 2222", 0.0},
+        {3, "Nordic Mobility", "+372 5555 3333", 0.0}
+    };
+
+    cars = {
+        {1, 1, "Toyota", "Yaris", "Economy", 28.0, true},
+        {2, 1, "Toyota", "RAV4", "SUV", 55.0, true},
+        {3, 2, "Skoda", "Octavia", "Sedan", 40.0, true},
+        {4, 2, "BMW", "X5", "Luxury", 120.0, true},
+        {5, 2, "VW", "Caddy", "Van", 45.0, true},
+        {6, 3, "Hyundai", "i20", "Economy", 27.0, true},
+        {7, 3, "Kia", "Sportage", "SUV", 52.0, true},
+        {8, 3, "Mercedes", "E200", "Luxury", 110.0, true}
+    };
+
+    clients = {
+        {1, "Alice Cooper", 6, 0, 3, true, 0.10},
+        {2, "Bob Martin", 1, 1, 0, false, 0.0},
+        {3, "Chris Evans", 10, 2, 6, true, 0.05}
+    };
+
+    typeDiscounts = {
+        {"SUV", 0.05},     // 5% off SUVs
+        {"Economy", 0.00}, // no discount
+        {"Sedan", 0.02},   // 2% off sedans
+        {"Luxury", 0.00},
+        {"Van", 0.00}
+    };
+}
+
+void showMenu() {
+    std::cout << "\n============================";
+    std::cout << "\nCar Rental Service (Simple)";
+    std::cout << "\n============================\n";
+    std::cout << "1) List all cars\n";
+    std::cout << "2) Search suitable cars (by type/brand/price)\n";
+    std::cout << "3) List suppliers\n";
+    std::cout << "4) List clients\n";
+    std::cout << "5) Create rental (sign contract)\n";
+    std::cout << "6) Return a car (close rental)\n";
+    std::cout << "7) List rentals\n";
+    std::cout << "8) Set TYPE discount (management)\n";
+    std::cout << "9) Income report\n";
+    std::cout << "10) Add new client\n";
+    std::cout << "0) Exit\n";
+    std::cout << ">> ";
+}
+
+int main() {
+    std::cout << std::fixed << std::setprecision(2);
+    seedData();
+
+    bool running = true;
+    while (running) {
+        showMenu();
+        int choice; if (!(std::cin >> choice)) break;
+        switch (choice) {
+            case 1: listCars(); break;
+            case 2: searchCars(); break;
+            case 3: listSuppliers(); break;
+            case 4: listClients(); break;
+            case 5: createRental(); break;
+            case 6: returnCar(); break;
+            case 7: listRentals(); break;
+            case 8: setTypeDiscount(); break;
+            case 9: reportIncome(); break;
+            case 10: addClient(); break;
+            case 0: running = false; break;
+            default: std::cout << "Unknown option" << "\n"; break;
+        }
+    }
+
+    std::cout << "\nGoodbye!\n";
+    return 0;
+}
